@@ -15,7 +15,7 @@ dependencies = [
     "sqlalchemy[asyncio]",
     "alembic",
     "asyncpg",
-    "sqlglot",
+    "sqlglot>=30.22",
     "httpx",
     "groq",
     "cerebras-cloud-sdk",
