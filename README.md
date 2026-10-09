@@ -7,7 +7,7 @@
 ██║      ██║ ╚════██║    ██║    ██╔══╝   ██╔══██╗ ██║╚██╗██║
 ╚██████╗ ██║ ███████║    ██║    ███████╗ ██║  ██║ ██║ ╚████║
  ╚═════╝ ╚═╝ ╚══════╝    ╚═╝    ╚══════╝ ╚═╝  ╚═╝ ╚═╝  ╚═══╝
- </pre>
+</pre>
 
 *Answers questions in English, and refuses the ones it cannot answer honestly.*
 
