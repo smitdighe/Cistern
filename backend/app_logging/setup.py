@@ -6,8 +6,12 @@ stdlib formatter captures all of it with one configuration. structlog would
 render its own events as JSON and leave every library log line in a different
 shape, which is the opposite of the point.
 
-One handler on the root logger, writing to stdout. No file handlers: the
-process is expected to run somewhere that captures stdout.
+One handler on the root logger, writing to stderr. No file handlers: the
+process is expected to run somewhere that captures its output streams.
+
+stderr, not stdout, because stdout is the data channel for the CLIs: the eval
+runner and adversarial suite print their ``--json`` reports there and CI pipes
+them into files it then parses. A log line on stdout corrupts that document.
 """
 
 from __future__ import annotations
@@ -100,7 +104,7 @@ def configure_logging(level: str | None = None, *, force: bool = False) -> None:
 
     resolved = (level or settings.LOG_LEVEL or "INFO").upper()
 
-    handler = logging.StreamHandler(sys.stdout)
+    handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(JSONFormatter())
 
     root = logging.getLogger()
