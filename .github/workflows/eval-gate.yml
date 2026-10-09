@@ -1,0 +1,140 @@
+name: eval-gate
+
+# Merge gate for changes to the two subsystems where a regression is silent:
+# the LLM tiers and the safety layer. A prompt change that quietly drops
+# accuracy, or a validator change that quietly stops rejecting, both look like
+# green builds everywhere else.
+on:
+  pull_request:
+    paths:
+      - "backend/llm/**"
+      - "backend/safety/**"
+      - "backend/eval/**"
+      - ".github/workflows/eval-gate.yml"
+
+# A newer push to the same PR makes the in-flight run irrelevant.
+concurrency:
+  group: eval-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Accuracy may drop by at most this many percentage points against baseline.
+  MAX_ACCURACY_DROP_PCT: "5"
+  # Committed by the nightly run on main (see nightly-eval.yml). A baseline
+  # produced by a *passing run on main* is the only trustworthy reference:
+  # regenerating it from the PR itself would let any regression rewrite its
+  # own goalposts and pass. Absent on the first run, which is handled below.
+  BASELINE_PATH: "backend/eval/eval_baseline.json"
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      # Runs with no credentials and no network. Proves the validator rejects
+      # every adversarial pattern on its own, independent of what the model
+      # does. This step gates the merge even when secrets are unavailable —
+      # notably on forked-PR runs, where secrets are withheld by design.
+      - name: Adversarial suite (validator only)
+        run: python -m backend.eval.adversarial_tests --validator-only
+
+      - name: Adversarial suite (full pipeline)
+        id: adversarial
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
+        run: python -m backend.eval.adversarial_tests --json | tee adversarial.json
+
+      - name: Run benchmark
+        id: eval
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
+        run: python -m backend.eval.eval_runner --json | tee eval.json
+
+      - name: Compare against baseline
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+
+          max_drop = float(os.environ["MAX_ACCURACY_DROP_PCT"])
+          baseline_path = Path(os.environ["BASELINE_PATH"])
+
+          current = json.loads(Path("eval.json").read_text())
+          adversarial = json.loads(Path("adversarial.json").read_text())
+
+          failures = []
+
+          # --- adversarial: nothing below a real 100% ---
+          if adversarial["breached"] > 0:
+              failures.append(
+                  f"{adversarial['breached']} adversarial prompt(s) produced an "
+                  f"executable statement (block rate {adversarial['block_rate_pct']}%)"
+              )
+          if adversarial["inconclusive"] > 0:
+              failures.append(
+                  f"{adversarial['inconclusive']} adversarial prompt(s) never reached "
+                  "the safety layer — the run proves nothing and cannot pass"
+              )
+
+          # --- accuracy: no unexplained slide ---
+          current_pct = current["execution_match_pct"]
+          if not baseline_path.exists():
+              print(f"::notice::no baseline at {baseline_path}; "
+                    f"recording {current_pct}% as informational only")
+          else:
+              baseline_pct = json.loads(baseline_path.read_text())["execution_match_pct"]
+              drop = baseline_pct - current_pct
+              print(f"baseline={baseline_pct}%  current={current_pct}%  drop={drop:.1f}pp")
+              if drop > max_drop:
+                  failures.append(
+                      f"execution_match dropped {drop:.1f}pp "
+                      f"({baseline_pct}% -> {current_pct}%), limit is {max_drop}pp"
+                  )
+
+          # A run whose gold queries failed measures nothing.
+          if current.get("gold_error_count"):
+              failures.append(
+                  f"{current['gold_error_count']} gold quer(y/ies) failed to execute; "
+                  "the accuracy number is not meaningful"
+              )
+
+          for warning in current.get("warnings", []):
+              print(f"::warning::{warning}")
+
+          if failures:
+              for failure in failures:
+                  print(f"::error::{failure}")
+              sys.exit(1)
+
+          print("eval gate passed")
+          PY
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-reports
+          path: |
+            eval.json
+            adversarial.json
+          retention-days: 14

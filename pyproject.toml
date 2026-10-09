@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cistern"
+version = "0.1.0"
+description = "Cistern backend — natural language to SQL query service"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "sqlalchemy",
+    "alembic",
+    "asyncpg",
+    "sqlglot",
+    "httpx",
+    "groq",
+    "cerebras-cloud-sdk",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "black",
+]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# The async engines in backend/db/connection.py are module-level singletons;
+# their pooled asyncpg connections are bound to the loop they were created on.
+# A per-test loop would hand a pooled connection created on test A's (closed)
+# loop to test B. One loop for the whole session matches the app's reality.
+asyncio_default_test_loop_scope = "session"

@@ -1,0 +1,157 @@
+name: nightly-eval
+
+# Full benchmark + adversarial run against main, and the producer of the
+# baseline that eval-gate compares PRs against.
+#
+# This workflow DOES fail its status on regression. It is not a merge gate —
+# nothing is blocked by it — but a nightly that only logs is a nightly nobody
+# reads. A red status on the default branch is the signal; burying a real
+# accuracy collapse in a green run's logs defeats the purpose of running it.
+# The baseline is only updated when the run is healthy, so a bad night cannot
+# quietly lower the bar that tomorrow's PRs are measured against.
+on:
+  schedule:
+    # 03:00 UTC daily.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-eval
+  cancel-in-progress: false
+
+permissions:
+  contents: write # commits the refreshed baseline
+
+env:
+  BASELINE_PATH: "backend/eval/eval_baseline.json"
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Adversarial suite (validator only)
+        run: python -m backend.eval.adversarial_tests --validator-only --json | tee adversarial-validator.json
+
+      - name: Adversarial suite (full pipeline)
+        id: adversarial
+        continue-on-error: true
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
+        run: python -m backend.eval.adversarial_tests --json | tee adversarial.json
+
+      - name: Run benchmark
+        id: eval
+        continue-on-error: true
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_ADMIN_URL: ${{ secrets.DATABASE_ADMIN_URL }}
+        run: python -m backend.eval.eval_runner --json | tee eval.json
+
+      - name: Summarise
+        id: summary
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          current = json.loads(Path("eval.json").read_text())
+          adversarial = json.loads(Path("adversarial.json").read_text())
+
+          healthy = (
+              adversarial["breached"] == 0
+              and adversarial["inconclusive"] == 0
+              and not current.get("gold_error_count")
+          )
+
+          lines = [
+              "## Nightly eval",
+              "",
+              f"- run_id: `{current['run_id']}`",
+              f"- cases: {current['total_count']}",
+              f"- exact_match: {current['exact_match_pct']}%",
+              f"- execution_match: {current['execution_match_pct']}%",
+              f"- semantic_match: {current['semantic_match_pct']}% (judge included)",
+              f"- adversarial block rate: {adversarial['block_rate_pct']}% "
+              f"({adversarial['breached']} breached, {adversarial['inconclusive']} inconclusive)",
+          ]
+          for warning in current.get("warnings", []):
+              lines.append(f"- :warning: {warning}")
+
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines))
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as handle:
+              handle.write(f"healthy={'true' if healthy else 'false'}\n")
+              handle.write(f"execution_match_pct={current['execution_match_pct']}\n")
+          PY
+
+      # Only a clean run may move the baseline. Committing a degraded number
+      # would permanently lower the threshold every future PR is checked
+      # against — the regression would become the new normal.
+      - name: Update baseline
+        if: steps.summary.outputs.healthy == 'true'
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          current = json.loads(Path("eval.json").read_text())
+          baseline = {
+              "run_id": current["run_id"],
+              "total_count": current["total_count"],
+              "exact_match_pct": current["exact_match_pct"],
+              "execution_match_pct": current["execution_match_pct"],
+              "semantic_match_pct": current["semantic_match_pct"],
+              "commit": os.environ["GITHUB_SHA"],
+          }
+          path = Path(os.environ["BASELINE_PATH"])
+          path.write_text(json.dumps(baseline, indent=2) + "\n")
+          print(json.dumps(baseline, indent=2))
+          PY
+
+          if [ -n "$(git status --porcelain "$BASELINE_PATH")" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$BASELINE_PATH"
+            git commit -m "chore: refresh eval baseline from nightly run"
+            git push
+          else
+            echo "baseline unchanged"
+          fi
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-eval-reports
+          path: |
+            eval.json
+            adversarial.json
+            adversarial-validator.json
+          retention-days: 90
+
+      # Deliberately last: reports are uploaded and the summary is written
+      # before the status is failed, so a red run is still diagnosable.
+      - name: Fail on regression
+        if: steps.summary.outputs.healthy != 'true'
+        run: |
+          echo "::error::nightly eval regressed — see the job summary and artifacts"
+          exit 1

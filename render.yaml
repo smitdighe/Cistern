@@ -1,0 +1,71 @@
+# Render Blueprint — backend API only. The frontend is a static build and goes
+# to Vercel (see frontend/vercel.json).
+#
+# Apply with: Render dashboard -> New -> Blueprint -> pick this repo.
+# Secrets are declared here but deliberately not valued: `sync: false` means
+# Render prompts for them once and stores them encrypted, so no credential ever
+# lands in the repository.
+services:
+  - type: web
+    name: cistern-api
+    runtime: python
+    plan: free
+    # Match this to the region your Neon database lives in. Cross-region adds
+    # 100ms+ to every query, and the pipeline makes several round trips per
+    # request. Options: oregon, ohio, virginia, frankfurt, singapore.
+    region: singapore
+
+    # Editable install, on purpose. backend/config.py resolves the .env path
+    # relative to its own __file__, so a non-editable install into
+    # site-packages would change what that path points at. Editable keeps the
+    # deployed layout identical to the local one.
+    buildCommand: pip install --upgrade pip && pip install -e .
+
+    # $PORT is assigned by Render; binding anything else fails the deploy.
+    # One worker — the free tier has 512MB, and the workload is IO-bound on
+    # provider and database calls rather than CPU-bound.
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+
+    # No healthCheckPath. Render would poll it continuously, and GET /health is
+    # not free: every call makes two live provider requests and opens two
+    # database connections. Left unset, Render checks that the port is bound,
+    # which is the right liveness signal for this service.
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13"
+
+      # Entered once in the Render dashboard, never stored in git.
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_ADMIN_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+
+      # Set to the deployed frontend origin, comma-separated, no trailing
+      # slash — e.g. https://cistern.vercel.app. Until this matches, the browser
+      # blocks every API call with a CORS error and the UI shows
+      # "Could not reach the backend".
+      - key: CORS_ORIGINS
+        sync: false
+
+      - key: ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: MAX_CORRECTION_ATTEMPTS
+        value: "3"
+      - key: QUERY_TIMEOUT_SECONDS
+        value: "10"
+      - key: DEFAULT_QUERY_LIMIT
+        value: "500"
+
+      # How long GET /health may reuse a probe result. Each refresh costs two
+      # authenticated provider calls and two database connections, so this is
+      # what stops an open dashboard from spending quota around the clock.
+      # Raise it if provider limits get tight; lower it only while debugging.
+      - key: HEALTH_CACHE_SECONDS
+        value: "60"

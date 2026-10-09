@@ -1,0 +1,131 @@
+{
+  "_meta": {
+    "status": "STARTER SET — NOT A COMPLETE BENCHMARK",
+    "warning": "The gold SQL below was written against the ASSUMED e-commerce schema in 'schema_assumptions', NOT against a verified live database. No seeded dataset was ever available to inspect. Every query here is unvalidated. eval_runner checks these assumptions against the live schema at startup and refuses to run on a mismatch rather than reporting meaningless scores.",
+    "expand_me": "18 cases is a smoke test, not an evaluation. A benchmark that can distinguish a good pipeline from a bad one needs 100+ cases with deliberate coverage of joins, window functions, date arithmetic, NULL semantics, and questions the pipeline should refuse or ask about.",
+    "coverage_gaps": [
+      "no window functions",
+      "no self-joins or recursive CTEs",
+      "no deliberately ambiguous questions (the pipeline should ask, and scoring should credit that)",
+      "no questions whose correct answer is an empty result",
+      "no adversarial or injection-shaped questions (phase 9: adversarial_tests.py)"
+    ]
+  },
+  "schema_assumptions": {
+    "customers": ["id", "name", "email", "country", "created_at"],
+    "categories": ["id", "name"],
+    "products": ["id", "name", "category_id", "price", "stock"],
+    "orders": ["id", "customer_id", "status", "total", "placed_at"],
+    "order_items": ["id", "order_id", "product_id", "quantity", "unit_price"]
+  },
+  "cases": [
+    {
+      "id": "count-all-orders",
+      "question": "How many orders are there in total?",
+      "gold_sql": "SELECT COUNT(*) AS order_count FROM orders",
+      "tags": ["aggregate", "simple"]
+    },
+    {
+      "id": "list-customer-names",
+      "question": "List the names of all customers.",
+      "gold_sql": "SELECT name FROM customers",
+      "tags": ["projection", "simple"]
+    },
+    {
+      "id": "customers-in-germany",
+      "question": "Which customers are based in Germany?",
+      "gold_sql": "SELECT name FROM customers WHERE country = 'Germany'",
+      "tags": ["filter"]
+    },
+    {
+      "id": "distinct-countries",
+      "question": "What distinct countries do our customers come from?",
+      "gold_sql": "SELECT DISTINCT country FROM customers WHERE country IS NOT NULL",
+      "tags": ["distinct", "null-handling"]
+    },
+    {
+      "id": "orders-last-30-days",
+      "question": "How many orders were placed in the last 30 days?",
+      "gold_sql": "SELECT COUNT(*) AS order_count FROM orders WHERE placed_at >= NOW() - INTERVAL '30 days'",
+      "tags": ["date-arithmetic", "aggregate"]
+    },
+    {
+      "id": "total-revenue",
+      "question": "What is the total value of all orders?",
+      "gold_sql": "SELECT SUM(total) AS total_revenue FROM orders",
+      "tags": ["aggregate"]
+    },
+    {
+      "id": "average-order-value",
+      "question": "What is the average order value?",
+      "gold_sql": "SELECT AVG(total) AS average_order_value FROM orders",
+      "tags": ["aggregate"]
+    },
+    {
+      "id": "orders-by-status",
+      "question": "How many orders are there in each status?",
+      "gold_sql": "SELECT status, COUNT(*) AS order_count FROM orders GROUP BY status",
+      "tags": ["group-by"]
+    },
+    {
+      "id": "most-expensive-products",
+      "question": "What are the five most expensive products?",
+      "gold_sql": "SELECT name, price FROM products ORDER BY price DESC LIMIT 5",
+      "tags": ["order-by", "limit"]
+    },
+    {
+      "id": "out-of-stock-products",
+      "question": "Which products are out of stock?",
+      "gold_sql": "SELECT name FROM products WHERE stock = 0",
+      "tags": ["filter"]
+    },
+    {
+      "id": "spend-per-customer",
+      "question": "What is the total amount each customer has spent, by customer name?",
+      "gold_sql": "SELECT c.name, SUM(o.total) AS total_spent FROM customers AS c JOIN orders AS o ON o.customer_id = c.id GROUP BY c.name",
+      "tags": ["join", "group-by", "aggregate"]
+    },
+    {
+      "id": "products-per-category",
+      "question": "How many products are in each category?",
+      "gold_sql": "SELECT cat.name AS category_name, COUNT(p.id) AS product_count FROM categories AS cat LEFT JOIN products AS p ON p.category_id = cat.id GROUP BY cat.name",
+      "tags": ["join", "group-by", "left-join"]
+    },
+    {
+      "id": "customers-with-no-orders",
+      "question": "Which customers have never placed an order?",
+      "gold_sql": "SELECT c.name FROM customers AS c LEFT JOIN orders AS o ON o.customer_id = c.id WHERE o.id IS NULL",
+      "tags": ["left-join", "null-handling", "anti-join"]
+    },
+    {
+      "id": "customers-more-than-three-orders",
+      "question": "Which customers have placed more than three orders?",
+      "gold_sql": "SELECT c.name, COUNT(o.id) AS order_count FROM customers AS c JOIN orders AS o ON o.customer_id = c.id GROUP BY c.name HAVING COUNT(o.id) > 3",
+      "tags": ["join", "group-by", "having"]
+    },
+    {
+      "id": "units-sold-per-product",
+      "question": "How many units of each product have been sold?",
+      "gold_sql": "SELECT p.name, SUM(oi.quantity) AS units_sold FROM products AS p JOIN order_items AS oi ON oi.product_id = p.id GROUP BY p.name",
+      "tags": ["join", "group-by", "aggregate"]
+    },
+    {
+      "id": "revenue-per-category",
+      "question": "What is the total revenue generated by each product category?",
+      "gold_sql": "SELECT cat.name AS category_name, SUM(oi.quantity * oi.unit_price) AS revenue FROM categories AS cat JOIN products AS p ON p.category_id = cat.id JOIN order_items AS oi ON oi.product_id = p.id GROUP BY cat.name",
+      "tags": ["multi-join", "group-by", "arithmetic"]
+    },
+    {
+      "id": "items-in-largest-order",
+      "question": "How many line items does the order with the highest total have?",
+      "gold_sql": "SELECT COUNT(*) AS item_count FROM order_items WHERE order_id = (SELECT id FROM orders ORDER BY total DESC LIMIT 1)",
+      "tags": ["subquery", "aggregate"]
+    },
+    {
+      "id": "monthly-order-counts",
+      "question": "How many orders were placed in each month?",
+      "gold_sql": "SELECT DATE_TRUNC('month', placed_at) AS month, COUNT(*) AS order_count FROM orders GROUP BY DATE_TRUNC('month', placed_at) ORDER BY month",
+      "tags": ["date-arithmetic", "group-by", "order-by"]
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Dark is the default, not an override — these are the base tokens.
+     Eight tokens total: three surfaces, one foreground, one accent hue, three
+     status colors. Dimmer variants come from opacity modifiers, not new tokens. */
+  :root {
+    color-scheme: dark;
+    --background: 240 10% 6%;
+    --surface: 240 8% 10%;
+    --border: 240 6% 18%;
+    --foreground: 220 14% 90%;
+    --accent: 271 91% 74%;
+    --success: 142 69% 58%;
+    --warning: 38 92% 60%;
+    --error: 0 84% 68%;
+  }
+
+  .light {
+    color-scheme: light;
+    --background: 0 0% 100%;
+    --surface: 240 10% 97%;
+    --border: 240 6% 88%;
+    --foreground: 240 10% 8%;
+    --accent: 271 81% 52%;
+    --success: 142 71% 34%;
+    --warning: 32 95% 40%;
+    --error: 0 72% 46%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  /* Sticky header offset: an anchor scrolled to by the schema sidebar must not
+     land underneath the frosted bar. */
+  html {
+    scroll-padding-top: 5rem;
+  }
+
+  /* Framer Motion is handled by MotionConfig in main.tsx; this covers the CSS
+     side — Tailwind `transition-*` and `animate-*` utilities scattered across
+     components, which no JS setting reaches. Not zero: 0.01ms still fires
+     transitionend/animationend, so anything waiting on those keeps working. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /*
+   * One glass definition, used by every panel in the app.
+   *
+   * The product's pitch is "glass box, not black box" — you can see what the
+   * pipeline did. Literal translucency is that claim rendered: the ambient
+   * schema graph stays faintly visible *through* the surfaces sitting on it,
+   * so nothing reads as painted over.
+   *
+   * Three things make it read as glass rather than as a flat tinted panel:
+   *
+   *   1. `backdrop-filter` — the actual refraction. Saturation is pushed
+   *      slightly above 1 because blurring alone desaturates what shows
+   *      through, and a grey smear does not look like glass.
+   *   2. A hairline whose brightness varies along its length. A single flat
+   *      border colour is the giveaway of fake glass: real edges catch light
+   *      at the top and lose it at the bottom. Done with a masked gradient
+   *      pseudo-element, since `border-image` cannot follow a border-radius.
+   *   3. An inset top highlight, one pixel, for the lit edge itself.
+   *
+   * Alpha is deliberately high (0.55). Everything below WCAG-AA on these
+   * surfaces was checked against the *composited* result, not the token —
+   * translucency that eats contrast is the usual way this aesthetic breaks.
+   */
+  .glass {
+    position: relative;
+    background-color: hsl(var(--surface) / 0.55);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    box-shadow:
+      0 1px 1px hsl(240 10% 2% / 0.4),
+      0 8px 24px -12px hsl(240 10% 2% / 0.7),
+      /* The accent glow is what keeps depth from reading as a grey drop
+         shadow. Kept under 10% — past that it stops being depth and starts
+         being neon. */
+      0 4px 32px -16px hsl(var(--accent) / 0.09),
+      inset 0 1px 0 0 hsl(var(--foreground) / 0.05);
+  }
+
+  .glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      160deg,
+      hsl(var(--accent) / 0.28) 0%,
+      hsl(var(--foreground) / 0.1) 32%,
+      hsl(var(--border) / 0.55) 70%
+    );
+    /* Ring-shaped mask: paint the padding box, punch out the content box, so
+       only the 1px frame survives. */
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /*
+   * Top of the elevation scale. PipelineTrace is the page's hero and has to
+   * sit above the answer panels it annotates — more blur, a longer shadow and
+   * a touch more opacity, so it reads as nearer without any z-index games.
+   */
+  .glass-raised {
+    background-color: hsl(var(--surface) / 0.68);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    box-shadow:
+      0 1px 1px hsl(240 10% 2% / 0.45),
+      0 16px 40px -20px hsl(240 10% 2% / 0.85),
+      0 6px 40px -18px hsl(var(--accent) / 0.13),
+      inset 0 1px 0 0 hsl(var(--foreground) / 0.07);
+  }
+
+  .glass-raised::before {
+    background: linear-gradient(
+      160deg,
+      hsl(var(--accent) / 0.4) 0%,
+      hsl(var(--foreground) / 0.12) 34%,
+      hsl(var(--border) / 0.6) 72%
+    );
+  }
+
+  /*
+   * Status-tinted glass, for the cards that report a verdict. Same structure,
+   * but the frame carries the status hue so the panel is identifiable before
+   * any text is read. No new hues — these are the existing three.
+   */
+  .glass-error::before {
+    background: linear-gradient(
+      160deg,
+      hsl(var(--error) / 0.45) 0%,
+      hsl(var(--error) / 0.16) 40%,
+      hsl(var(--border) / 0.5) 75%
+    );
+  }
+
+  .glass-accent::before {
+    background: linear-gradient(
+      160deg,
+      hsl(var(--accent) / 0.5) 0%,
+      hsl(var(--accent) / 0.18) 40%,
+      hsl(var(--border) / 0.5) 75%
+    );
+  }
+
+  /*
+   * Fallback for browsers without backdrop-filter (Firefox before 103, and
+   * anything with the feature disabled). Without this the panels degrade to
+   * 55%-opaque surfaces over a moving graph, which is genuinely unreadable —
+   * so the transparency is dropped entirely rather than kept at a lower blur.
+   */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass,
+    .glass-raised {
+      background-color: hsl(var(--surface));
+    }
+  }
+}
