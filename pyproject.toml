@@ -12,7 +12,7 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic",
     "pydantic-settings",
-    "sqlalchemy",
+    "sqlalchemy[asyncio]",
     "alembic",
     "asyncpg",
     "sqlglot",
