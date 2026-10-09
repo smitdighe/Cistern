@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     CEREBRAS_API_KEY: str = ""
 
+    # Generation-tier model. Configurable because providers retire models on
+    # their own schedule; a retirement should be an env change, not a deploy.
+    # Keep it a different model family from Cerebras' gpt-oss-120b so the
+    # corrector and judge never grade output from their own model.
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
+
     ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     MAX_CORRECTION_ATTEMPTS: int = 3

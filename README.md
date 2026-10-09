@@ -43,12 +43,12 @@ feeding the correction loop.
   introspect.get_schema()           cached in-process; ?refresh=true re-reads
          │                          query_log / benchmark_results / alembic_version withheld
          ▼
-  detect_ambiguity()                Groq llama-3.3-70b-versatile
+  detect_ambiguity()                Groq qwen/qwen3.8-27b (GROQ_MODEL)
          │                          "top customers by what?"
          ├─ is_ambiguous ──► status: ambiguous, attempts: 0 ──► clarifying_question
          │                          (zero generation calls spent; fails OPEN on provider error)
          ▼
-  generate_sql()                    Groq llama-3.3-70b-versatile, temperature 0, JSON mode
+  generate_sql()                    Groq qwen/qwen3.8-27b, temperature 0, JSON mode
          │
          ├─ LLMError ──────────────────────────────► status: failed
          ├─ generation.is_ambiguous ───────────────► status: ambiguous
@@ -185,7 +185,7 @@ adversarial prompts that must be blocked at a **real 100%**. Both gate PRs touch
 | Database | Neon Postgres via SQLAlchemy 2 (async) + asyncpg | Two engines, two roles, no shared sessionmaker |
 | Migrations | Alembic | `query_log`, `benchmark_results` |
 | SQL analysis | **sqlglot** | Parse, allowlist, grounding, LIMIT injection, canonicalisation |
-| Generation | Groq `llama-3.3-70b-versatile` | SQL generation + ambiguity detection |
+| Generation | Groq `qwen/qwen3.8-27b` (configurable via `GROQ_MODEL`) | SQL generation + ambiguity detection |
 | Correction / explanation / judge | Cerebras `gpt-oss-120b` | Repair loop, plain-English explanation, eval adjudication |
 | LLM transport | `httpx` via `backend/llm/base.py` | One retry policy, full-jitter backoff, `Retry-After` honoured |
 | Backend tests | pytest + pytest-asyncio | 111 tests; session-scoped event loop |

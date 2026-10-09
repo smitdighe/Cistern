@@ -23,7 +23,7 @@ from backend.llm.prompts import generation_prompt
 
 GROQ_BASE_URL = "https://api.groq.com"
 GROQ_CHAT_PATH = "/openai/v1/chat/completions"
-GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+GROQ_DEFAULT_MODEL = settings.GROQ_MODEL
 
 _MAX_TOKENS = 1500
 
