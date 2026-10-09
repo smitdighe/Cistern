@@ -29,7 +29,7 @@ from typing import Any
 
 from backend.config import settings
 from backend.db.executor import QueryExecutionResult, execute_query
-from backend.dependencies import shared_cerebras_client
+from backend.dependencies import shared_correction_client
 from backend.llm import cerebras_client
 from backend.llm.base import LLMError
 from backend.safety.validator import validate_and_prepare
@@ -183,7 +183,7 @@ async def run_correction(
 
         try:
             correction = await cerebras_client.correct_sql(
-                question, schema, prev_sql, prev_error, client=shared_cerebras_client()
+                question, schema, prev_sql, prev_error, client=shared_correction_client()
             )
         except LLMError as exc:
             last_error = f"correction call failed: {exc}"

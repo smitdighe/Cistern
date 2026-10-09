@@ -33,7 +33,7 @@ from backend.correction.loop import (
 )
 from backend.db import introspect
 from backend.db.executor import execute_query
-from backend.dependencies import shared_cerebras_client, shared_groq_client
+from backend.dependencies import shared_correction_client, shared_groq_client
 from backend.llm import cerebras_client, groq_client
 from backend.llm.base import LLMError
 from backend.safety.validator import validate_and_prepare
@@ -86,7 +86,7 @@ async def _safe_explain(question: str, sql: str) -> tuple[str | None, list[str]]
     """Explanation is best-effort: its failure must not sink a good result."""
     try:
         explanation = await cerebras_client.explain_sql(
-            question, sql, client=shared_cerebras_client()
+            question, sql, client=shared_correction_client()
         )
         return explanation, []
     except LLMError as exc:

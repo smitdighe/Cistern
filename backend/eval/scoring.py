@@ -28,7 +28,7 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 
-from backend.dependencies import shared_cerebras_client
+from backend.dependencies import shared_correction_client
 from backend.llm import cerebras_client
 from backend.llm.base import LLMError
 from backend.safety import limits
@@ -315,7 +315,7 @@ async def score_pair(
             generated_sql=generated_sql or "",
             gold_result_summary=summarise_rows(gold_rows, error=gold_error),
             generated_result_summary=summarise_rows(generated_rows, error=generated_error),
-            client=shared_cerebras_client(),
+            client=shared_correction_client(),
         )
     except LLMError as exc:
         logger.warning("judge call failed, leaving pair unadjudicated: %s", exc)

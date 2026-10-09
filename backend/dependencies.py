@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import Settings, settings
 from backend.db.connection import get_admin_session, get_execution_session
-from backend.llm.base import LLMClient
+from backend.llm.base import FallbackLLMClient, LLMClient
 from backend.llm.cerebras_client import (
     CEREBRAS_BASE_URL,
     CEREBRAS_CHAT_PATH,
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _groq_client: LLMClient | None = None
 _cerebras_client: LLMClient | None = None
+_correction_fallback_client: LLMClient | None = None
 
 
 def shared_groq_client() -> LLMClient:
@@ -64,10 +65,30 @@ def shared_cerebras_client() -> LLMClient:
     return _cerebras_client
 
 
+def shared_correction_client() -> FallbackLLMClient:
+    """Correction, explanation and judge tiers: Cerebras, then Groq.
+
+    The fallback serves Cerebras' model family on Groq's infrastructure, so a
+    Cerebras quota or outage degrades to a different provider rather than to a
+    different model. /health keeps probing ``shared_cerebras_client`` directly,
+    so it still reports Cerebras' own state.
+    """
+    global _correction_fallback_client
+    if _correction_fallback_client is None:
+        _correction_fallback_client = LLMClient(
+            provider="groq-fallback",
+            base_url=GROQ_BASE_URL,
+            chat_path=GROQ_CHAT_PATH,
+            api_key=settings.GROQ_API_KEY,
+            default_model=settings.CORRECTION_FALLBACK_MODEL,
+        )
+    return FallbackLLMClient(shared_cerebras_client(), _correction_fallback_client)
+
+
 async def close_shared_clients() -> None:
-    """Release both pools. Called once on application shutdown."""
-    global _groq_client, _cerebras_client
-    for client in (_groq_client, _cerebras_client):
+    """Release every pool. Called once on application shutdown."""
+    global _groq_client, _cerebras_client, _correction_fallback_client
+    for client in (_groq_client, _cerebras_client, _correction_fallback_client):
         if client is None:
             continue
         try:
@@ -76,6 +97,7 @@ async def close_shared_clients() -> None:
             logger.warning("failed to close %s client cleanly", client.provider)
     _groq_client = None
     _cerebras_client = None
+    _correction_fallback_client = None
 
 
 # --- FastAPI providers ------------------------------------------------------

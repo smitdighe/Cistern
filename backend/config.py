@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # corrector and judge never grade output from their own model.
     GROQ_MODEL: str = "qwen/qwen3.8-27b"
 
+    # Served by Groq when Cerebras fails (quota, rate limit, outage) for the
+    # correction, explanation and judge tiers. Must be the same model family as
+    # Cerebras' gpt-oss-120b, and a different one from GROQ_MODEL.
+    CORRECTION_FALLBACK_MODEL: str = "openai/gpt-oss-120b"
+
     ENV: str = "development"
     LOG_LEVEL: str = "INFO"
     MAX_CORRECTION_ATTEMPTS: int = 3

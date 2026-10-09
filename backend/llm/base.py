@@ -338,3 +338,52 @@ class LLMClient:
             model=str(body.get("model") or payload.get("model") or "unknown"),
             usage=body.get("usage"),
         )
+
+
+class FallbackLLMClient:
+    """A primary provider, then a second provider serving the same model family.
+
+    Exists for quota and outage failures — a 402 from an exhausted free tier, a
+    429 that outlasted the retry budget, a provider that is simply down. Any
+    ``LLMError`` from the primary's transport sends the identical request to the
+    fallback. Parse failures in the caller (``extract_json`` on a 200) are not
+    transport failures and never reach here.
+
+    The fallback must serve the *same model family* as the primary, not merely
+    any working model: the correction and judge tiers are deliberately a
+    different family from generation, and a fallback that quietly swapped in
+    the generator's family would have it grading its own output.
+
+    Both clients are borrowed. Whoever created them closes them.
+    """
+
+    def __init__(self, primary: LLMClient, fallback: LLMClient) -> None:
+        self.primary = primary
+        self.fallback = fallback
+
+    @property
+    def provider(self) -> str:
+        return self.primary.provider
+
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        try:
+            return await self.primary.chat(messages, model=model, **kwargs)
+        except LLMError as exc:
+            logger.warning(
+                "%s failed, falling back to %s: %s",
+                self.primary.provider,
+                self.fallback.provider,
+                exc,
+            )
+        # A model name chosen for the primary means nothing to the fallback's
+        # catalogue; it always uses its own configured default.
+        return await self.fallback.chat(messages, **kwargs)
+
+    async def aclose(self) -> None:
+        """No-op: both clients are borrowed, never owned."""

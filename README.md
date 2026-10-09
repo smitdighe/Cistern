@@ -186,7 +186,7 @@ adversarial prompts that must be blocked at a **real 100%**. Both gate PRs touch
 | Migrations | Alembic | `query_log`, `benchmark_results` |
 | SQL analysis | **sqlglot** | Parse, allowlist, grounding, LIMIT injection, canonicalisation |
 | Generation | Groq `qwen/qwen3.8-27b` (configurable via `GROQ_MODEL`) | SQL generation + ambiguity detection |
-| Correction / explanation / judge | Cerebras `gpt-oss-120b` | Repair loop, plain-English explanation, eval adjudication |
+| Correction / explanation / judge | Cerebras `gpt-oss-120b`, falling back to the same model on Groq | Repair loop, plain-English explanation, eval adjudication; survives a Cerebras quota or outage |
 | LLM transport | `httpx` via `backend/llm/base.py` | One retry policy, full-jitter backoff, `Retry-After` honoured |
 | Backend tests | pytest + pytest-asyncio | 111 tests; session-scoped event loop |
 | Backend lint | ruff + black (line length 100) | Enforced in CI |
