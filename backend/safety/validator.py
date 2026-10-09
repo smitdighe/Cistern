@@ -27,7 +27,7 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
-from sqlglot.optimizer.scope import build_scope
+from sqlglot.optimizer.scope import Scope, ScopeType, build_scope
 
 from backend.safety import limits
 from backend.safety.allowlist import Disposition, classify
@@ -36,6 +36,12 @@ DIALECT = "postgres"
 
 # Statement types where a missing WHERE means "every row in the table".
 _WHERE_REQUIRED_TYPES: tuple[type[exp.Expression], ...] = (exp.Delete, exp.Update)
+
+# Scope types that can see their parent scope's sources. A subquery may be
+# correlated with the query that contains it; a set-operation branch sits at
+# the same level as its parent. CTE and derived-table bodies may not reference
+# their siblings, so their parent's sources stay out of reach.
+_SEES_PARENT_SOURCES = (ScopeType.SUBQUERY, ScopeType.SET_OPERATION)
 
 
 @dataclass(slots=True)
@@ -98,14 +104,32 @@ class _NameScope:
     virtual: dict[str, set[str]] = field(default_factory=dict)
     # names usable unqualified: projection aliases of this scope
     local_aliases: set[str] = field(default_factory=set)
+    # enclosing scopes a correlated subquery may reference, nearest first
+    enclosing: list[_NameScope] = field(default_factory=list)
+
+    def levels(self) -> list[_NameScope]:
+        """This scope followed by its reachable enclosing scopes, nearest first."""
+        return [self, *self.enclosing]
+
+    def resolve(self, qualifier: str) -> _NameScope | None:
+        """The nearest scope defining ``qualifier``; inner names shadow outer ones."""
+        for level in self.levels():
+            if qualifier in level.virtual or qualifier in level.physical:
+                return level
+        return None
 
     def visible_columns(self, index: dict[str, set[str]]) -> set[str]:
-        """Every column name resolvable without a qualifier in this scope."""
+        """Every column name resolvable without a qualifier in this scope.
+
+        Projection aliases of enclosing scopes are not visible here; only
+        their source columns are.
+        """
         names = set(self.local_aliases)
-        for real_table in self.physical.values():
-            names |= index.get(real_table, set())
-        for outputs in self.virtual.values():
-            names |= outputs
+        for level in self.levels():
+            for real_table in level.physical.values():
+                names |= index.get(real_table, set())
+            for outputs in level.virtual.values():
+                names |= outputs
         return names
 
 
@@ -127,6 +151,33 @@ def _local_aliases(scope_expression: exp.Expression) -> set[str]:
             if alias:
                 aliases.add(alias)
     return aliases
+
+
+def _sources_scope(scope: Scope) -> _NameScope:
+    """The names a scope's own sources contribute."""
+    name_scope = _NameScope(local_aliases=_local_aliases(scope.expression))
+    for source_name, source in scope.sources.items():
+        key = _normalise(source_name)
+        if isinstance(source, exp.Table):
+            name_scope.physical[key] = _normalise(source.name)
+        else:
+            name_scope.virtual[key] = _output_columns(source)
+    return name_scope
+
+
+def _enclosing_scopes(scope: Scope) -> list[Scope]:
+    """Ancestor scopes whose sources ``scope`` may reference, nearest first.
+
+    Walks the whole chain: a derived table inside a correlated subquery cannot
+    see its siblings but can still see the query enclosing that subquery.
+    """
+    visible: list[Scope] = []
+    current = scope
+    while current.parent is not None:
+        if current.scope_type in _SEES_PARENT_SOURCES:
+            visible.append(current.parent)
+        current = current.parent
+    return visible
 
 
 def _check_scope(
@@ -165,8 +216,15 @@ def _check_scope(
                 )
             continue
 
-        if qualifier in name_scope.virtual:
-            outputs = name_scope.virtual[qualifier]
+        owner = name_scope.resolve(qualifier)
+        if owner is None:
+            return (
+                f"unknown table alias '{qualifier}' in reference "
+                f"'{qualifier}.{name}' — no such table or alias in this query"
+            )
+
+        if qualifier in owner.virtual:
+            outputs = owner.virtual[qualifier]
             if outputs and name not in outputs:
                 known = ", ".join(sorted(outputs)) or "(none)"
                 return (
@@ -175,13 +233,7 @@ def _check_scope(
                 )
             continue
 
-        real_table = name_scope.physical.get(qualifier)
-        if real_table is None:
-            return (
-                f"unknown table alias '{qualifier}' in reference "
-                f"'{qualifier}.{name}' — no such table or alias in this query"
-            )
-
+        real_table = owner.physical[qualifier]
         table_columns = index.get(real_table, set())
         if name not in table_columns:
             known = ", ".join(sorted(table_columns)) or "(none)"
@@ -201,6 +253,10 @@ def _check_identifiers(statement: exp.Expression, index: dict[str, set[str]]) ->
     whole tree against one flat name pool lets
     ``WITH c AS (SELECT hallucinated FROM t) SELECT ...`` launder an invented
     column into legitimacy, because the CTE's output list vouches for it.
+
+    Correlated subqueries additionally resolve names against the sources of
+    the queries enclosing them. That reach stops at CTE and derived-table
+    boundaries, so a CTE body still never sees the CTE's own outputs.
     """
     root = build_scope(statement)
 
@@ -218,15 +274,12 @@ def _check_identifiers(statement: exp.Expression, index: dict[str, set[str]]) ->
                 name_scope.physical[alias] = table_name
         return _check_scope(name_scope, list(statement.find_all(exp.Column)), index)
 
-    for scope in root.traverse():
-        name_scope = _NameScope(local_aliases=_local_aliases(scope.expression))
+    scopes = list(root.traverse())
+    own = {id(scope): _sources_scope(scope) for scope in scopes}
 
-        for source_name, source in scope.sources.items():
-            key = _normalise(source_name)
-            if isinstance(source, exp.Table):
-                name_scope.physical[key] = _normalise(source.name)
-            else:
-                name_scope.virtual[key] = _output_columns(source)
+    for scope in scopes:
+        name_scope = own[id(scope)]
+        name_scope.enclosing = [own[id(outer)] for outer in _enclosing_scopes(scope)]
 
         error = _check_scope(name_scope, list(scope.columns), index)
         if error is not None:

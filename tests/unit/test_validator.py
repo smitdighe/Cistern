@@ -239,6 +239,65 @@ def test_cte_does_not_launder_a_hallucinated_column():
     assert "revenue" in result.rejection_reason
 
 
+# --- correlated subqueries -------------------------------------------------
+
+
+def test_not_exists_correlated_subquery_passes():
+    result = validate_and_prepare(
+        "SELECT c.name FROM customers c "
+        "WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.id)",
+        SCHEMA,
+    )
+
+    assert result.is_safe is True, result.rejection_reason
+
+
+def test_correlated_scalar_subquery_in_select_list_passes():
+    result = validate_and_prepare(
+        "SELECT c.name, "
+        "(SELECT COUNT(*) FROM orders o WHERE o.customer_id = c.id) AS order_count "
+        "FROM customers c",
+        SCHEMA,
+    )
+
+    assert result.is_safe is True, result.rejection_reason
+
+
+def test_in_subquery_referencing_outer_alias_passes():
+    result = validate_and_prepare(
+        "SELECT o.id FROM orders o WHERE o.customer_id IN "
+        "(SELECT c.id FROM customers c WHERE c.id = o.customer_id AND c.country = 'NL')",
+        SCHEMA,
+    )
+
+    assert result.is_safe is True, result.rejection_reason
+
+
+def test_hallucinated_column_on_outer_alias_inside_subquery_is_rejected():
+    result = validate_and_prepare(
+        "SELECT c.name FROM customers c "
+        "WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = c.revenue)",
+        SCHEMA,
+    )
+
+    assert result.is_safe is False
+    assert "unknown_column" in result.flags
+    assert "revenue" in result.rejection_reason
+    assert "customers" in result.rejection_reason
+
+
+def test_subquery_inside_cte_body_cannot_see_the_cte_outputs():
+    result = validate_and_prepare(
+        "WITH recent AS (SELECT o.id, o.total AS spend FROM orders o "
+        "WHERE EXISTS (SELECT 1 FROM customers c WHERE c.id = recent.spend)) "
+        "SELECT id FROM recent",
+        SCHEMA,
+    )
+
+    assert result.is_safe is False
+    assert "recent" in result.rejection_reason
+
+
 # --- malformed input --------------------------------------------------------
 
 
