@@ -3,6 +3,7 @@ import { GripHorizontal, KeyRound, Link2 } from 'lucide-react'
 
 import type { TableInfo } from '../../../api/types/schema.types'
 import { cn } from '../../../lib/cn'
+import { shortColumnType } from '../utils/columnType'
 import type { Point } from '../utils/diagramGeometry'
 
 export interface TableNodeProps {
@@ -114,6 +115,7 @@ export const TableNode = forwardRef<HTMLDivElement, TableNodeProps>(function Tab
         {table.columns.map((column) => {
           const isPrimary = primaryKey.has(column.name)
           const foreignKey = foreignKeyColumns.get(column.name)
+          const shortType = shortColumnType(column.type)
 
           return (
             <li
@@ -134,9 +136,14 @@ export const TableNode = forwardRef<HTMLDivElement, TableNodeProps>(function Tab
                 ) : null}
               </span>
 
+              {/* `flex-auto`, not `flex-1`: with a zero basis the name was sized
+                  from whatever the type left over, and a long type such as
+                  "timestamp with time zone" left nothing. Sized from its
+                  content, the name competes for the row — and the type's
+                  shrink weight below decides that it wins. */}
               <span
                 className={cn(
-                  'min-w-0 flex-1 truncate font-mono',
+                  'min-w-0 flex-auto truncate font-mono',
                   isPrimary ? 'font-medium text-foreground' : 'text-foreground/80',
                 )}
               >
@@ -151,7 +158,25 @@ export const TableNode = forwardRef<HTMLDivElement, TableNodeProps>(function Tab
                 )}
               </span>
 
-              <span className="shrink-0 font-mono text-foreground/60">{column.type}</span>
+              {/* The name is what people scan for; the type is detail. Postgres's
+                  short alias keeps most types whole, and where the card is
+                  still too narrow the type gives way first — a shrink weight of
+                  100 against the name's 1 — down to a floor that keeps a few
+                  characters showing rather than nothing. The full spelling
+                  stays one hover away and is what a screen reader hears. */}
+              <span
+                title={column.type}
+                className="min-w-[4ch] shrink-[100] truncate font-mono text-foreground/60"
+              >
+                {shortType === column.type ? (
+                  column.type
+                ) : (
+                  <>
+                    <span aria-hidden="true">{shortType}</span>
+                    <span className="sr-only">{column.type}</span>
+                  </>
+                )}
+              </span>
 
               {/* Nullability is stated only when it is true — "NULL" on two of
                   fifteen rows reads faster than "NOT NULL" on the other thirteen.
