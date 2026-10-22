@@ -1,8 +1,8 @@
 {
-  "run_id": "20261021T082323Z-13cf5048",
+  "run_id": "20261022T082609Z-fb42ccad",
   "total_count": 18,
   "exact_match_pct": 16.7,
-  "execution_match_pct": 38.9,
-  "semantic_match_pct": 83.3,
-  "commit": "7108423ef6022799c0e91915b5912e2bb88e0b8a"
+  "execution_match_pct": 33.3,
+  "semantic_match_pct": 77.8,
+  "commit": "ca7f50e6aa998e0f0273fe9895de96b07626d35a"
 }
