@@ -1,8 +1,8 @@
 {
-  "run_id": "20261127T115409Z-d21423f4",
+  "run_id": "20261128T112936Z-7fe4a909",
   "total_count": 18,
-  "exact_match_pct": 22.2,
-  "execution_match_pct": 44.4,
+  "exact_match_pct": 16.7,
+  "execution_match_pct": 38.9,
   "semantic_match_pct": 83.3,
-  "commit": "59b5577d6a32c105ba8b6aed70477a60af3c7f39"
+  "commit": "1105ba6419769c7eda6d9b23a0137e672de90e09"
 }
